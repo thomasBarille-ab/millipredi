@@ -1,15 +1,11 @@
 # EuroMillions ML — Démonstration des limites du Machine Learning
 
-> **Avertissement important** : Ce projet est un **exercice pédagogique**. L'EuroMillions
-> utilise un générateur aléatoire certifié. Il est **mathématiquement impossible** de
-> prédire les tirages. Ce projet existe pour démontrer ce fait en pratique.
-
 ## Objectif
 
 Entraîner plusieurs modèles de Machine Learning sur l'historique des tirages EuroMillions
 et mesurer s'ils font mieux qu'un tirage aléatoire — spoiler : **ils ne le font pas**.
 
-C'est un exercice d'apprentissage sur :
+Ce projet explore :
 - La distinction entre processus stochastique pur et signal exploitable
 - L'évaluation rigoureuse de modèles ML (split temporel, tests statistiques)
 - Les biais cognitifs liés aux jeux de hasard (gambler's fallacy)
@@ -138,6 +134,3 @@ Le planificateur Windows (`EuroMillions-ML-AutoUpdate`) s'exécute chaque jour �
 | Lundi / Jeudi | 🔮 Génère les prédictions pour le tirage du lendemain |
 | Mercredi / Samedi | 📡 Récupère les vrais résultats et met à jour le tableau |
 
----
-
-*Jouer doit rester un loisir. Aucun système ne peut améliorer vos chances à l'EuroMillions.*

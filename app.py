@@ -26,16 +26,6 @@ st.set_page_config(
 
 # ── Header ────────────────────────────────────────────────────────────────────
 st.title("🎰 EuroMillions ML — Démonstration des limites du Machine Learning")
-st.caption(
-    "**Objectif pédagogique :** montrer qu'aucun modèle ML ne fait mieux qu'un tirage "
-    "aléatoire face à un processus stochastique certifié."
-)
-st.info(
-    "⚠️ Ce projet est un **exercice d'apprentissage**, pas un outil de prédiction. "
-    "L'EuroMillions utilise un générateur aléatoire certifié — il est mathématiquement "
-    "impossible de prédire les tirages.",
-    icon="🔬",
-)
 
 # ── Onglets ───────────────────────────────────────────────────────────────────
 tab_eda, tab_models, tab_predict = st.tabs([

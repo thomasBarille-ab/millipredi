@@ -25,7 +25,7 @@ st.set_page_config(
 )
 
 # ── Header ────────────────────────────────────────────────────────────────────
-st.title("🎰 EuroMillions ML — Démonstration des limites du Machine Learning")
+st.title("🎰 EuroMillions ML")
 
 # ── Onglets ───────────────────────────────────────────────────────────────────
 tab_eda, tab_models, tab_predict = st.tabs([

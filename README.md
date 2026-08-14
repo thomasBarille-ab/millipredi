@@ -1,4 +1,4 @@
-# EuroMillions ML — Démonstration des limites du Machine Learning
+# EuroMillions ML
 
 ## Objectif
 

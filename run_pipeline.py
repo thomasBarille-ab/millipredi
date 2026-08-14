@@ -24,7 +24,7 @@ np.random.seed(SEED)
 
 def main(skip_collect: bool = False, skip_analyse: bool = False) -> None:
     print("=" * 60)
-    print("  Pipeline EuroMillions ML — démonstration des limites du ML")
+    print("  Pipeline EuroMillions ML")
     print("=" * 60)
 
     # 1. Collecte

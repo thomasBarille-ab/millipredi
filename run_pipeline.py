@@ -5,6 +5,8 @@ Usage : python run_pipeline.py [--skip-collect] [--skip-analyse]
 
 import sys
 import argparse
+import matplotlib
+matplotlib.use('Agg')
 import numpy as np
 
 sys.path.insert(0, str(__import__("pathlib").Path(__file__).parent / "src"))

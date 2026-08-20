@@ -28,10 +28,10 @@ st.set_page_config(
 st.title("🎰 EuroMillions ML")
 
 # ── Onglets ───────────────────────────────────────────────────────────────────
-tab_eda, tab_models, tab_predict = st.tabs([
+tab_eda, tab_models, tab_results = st.tabs([
     "📊 Analyse exploratoire",
     "🤖 Modèles & Prédictions",
-    "🔮 Prédictions vs Réalité",
+    "🔮 Prédictions & Résultats",
 ])
 
 
@@ -415,282 +415,119 @@ with tab_models:
 
 
 # ════════════════════════════════════════════════════════════════════════════
-# ONGLET 3 — Prédictions vs Réalité
+# ONGLET 3 — Prédictions & Résultats
 # ════════════════════════════════════════════════════════════════════════════
-with tab_predict:
-    from datetime import date, timedelta
-    from predict_next import generate_predictions, load_log_with_results, LOG_PATH
-    from scheduler import (
-        get_next_draw_date, get_prev_draw_date,
-        should_generate, should_fetch, LOG_PATH as SCHED_LOG,
-    )
+with tab_results:
+    from predict_next import load_log_with_results, LOG_PATH
+    from scheduler import get_next_draw_date as _next_draw
 
-    models_ready = (RESULTS_DIR / "rf_model.pkl").exists()
-
-    # ── Bandeau statut automatique ────────────────────────────────────────
-    today      = date.today()
-    next_draw  = get_next_draw_date(today)
-    days_until = (next_draw - today).days
-
-    col_s1, col_s2, col_s3 = st.columns(3)
-    col_s1.metric("Prochain tirage", next_draw.strftime("%A %d/%m/%Y").capitalize(), f"dans {days_until} jour(s)")
-    if DATA_PATH.exists():
-        df_data = pd.read_csv(DATA_PATH, parse_dates=["date"])
-        col_s2.metric("Dernier tirage connu", df_data["date"].max().strftime("%d/%m/%Y"))
-    if LOG_PATH.exists():
-        log_raw = pd.read_csv(LOG_PATH)
-        col_s3.metric("Sessions de prédiction", len(log_raw["made_at"].unique()))
-
-    # Statut du jour
-    if should_generate(today):
-        st.info(
-            f"📅 **Aujourd'hui c'est la veille du tirage ({next_draw.strftime('%d/%m/%Y')}).**  \n"
-            "Le système doit générer les prédictions — clique sur le bouton ci-dessous "
-            "ou laisse le planificateur automatique le faire à 9h.",
-            icon="🔮",
-        )
-    elif should_fetch(today):
-        prev_draw = get_prev_draw_date(today)
-        st.info(
-            f"📥 **Le tirage d'hier ({prev_draw.strftime('%d/%m/%Y')}) vient d'avoir lieu.**  \n"
-            "Le système doit récupérer les vrais résultats — clique sur **Rafraîchir les données** "
-            "ou laisse le planificateur automatique le faire à 9h.",
-            icon="📡",
-        )
+    if not LOG_PATH.exists():
+        st.info("Aucune prédiction enregistrée.")
     else:
-        day_names = ["lundi","mardi","mercredi","jeudi","vendredi","samedi","dimanche"]
-        st.success(
-            f"✅ Pas d'action requise aujourd'hui ({day_names[today.weekday()]}).  \n"
-            f"Le planificateur reprendra **{day_names[(next_draw - timedelta(days=1)).weekday()]}** "
-            f"pour générer les prédictions du tirage du {next_draw.strftime('%d/%m/%Y')}.",
-            icon="🤖",
-        )
+        df_log = load_log_with_results()
 
-    st.divider()
-
-    if not models_ready:
-        st.warning(
-            "Les modèles ne sont pas encore entraînés. "
-            "Lance `python run_pipeline.py --skip-collect --skip-analyse` d'abord.",
-            icon="⚠️",
-        )
-    else:
-        # ── Boutons manuels ───────────────────────────────────────────────
-        col_btn1, col_btn2, col_btn3 = st.columns(3)
-        with col_btn1:
-            if st.button("🔮 Générer les prédictions", use_container_width=True,
-                         type="primary" if should_generate(today) else "secondary"):
-                with st.spinner("Génération en cours..."):
-                    generate_predictions()
-                st.success("Prédictions générées !")
-                st.rerun()
-        with col_btn2:
-            if st.button("📡 Rafraîchir les données", use_container_width=True,
-                         type="primary" if should_fetch(today) else "secondary"):
-                with st.spinner("Récupération des tirages..."):
-                    import sys
-                    sys.path.insert(0, "src")
-                    from collect import collect
-                    collect(force=True)
-                st.success("Données mises à jour !")
-                st.rerun()
-        with col_btn3:
-            if st.button("🔄 Tout mettre à jour", use_container_width=True):
-                with st.spinner("Mise à jour complète..."):
-                    from scheduler import run_daily
-                    msg = run_daily(force=True)
-                st.success(msg)
-                st.rerun()
-
-        st.divider()
-
-        if LOG_PATH.exists():
-            log_raw = pd.read_csv(LOG_PATH)
-            last_run = log_raw["made_at"].max()
-            st.caption(f"Dernière prédiction : **{last_run}**")
-
-        st.divider()
-
-        if not LOG_PATH.exists():
-            st.info("Clique sur **Générer les prédictions** pour démarrer le suivi.")
+        if df_log.empty:
+            st.info("Aucune prédiction enregistrée.")
         else:
-            df_log = load_log_with_results()
+            MODEL_ORDER = ["baseline", "rf", "lstm", "freq_hot", "freq_cold"]
+            LABEL_MAP = {
+                "baseline":  "🎲 Baseline",
+                "rf":        "🌲 Random Forest",
+                "lstm":      "🧠 LSTM",
+                "freq_hot":  "🔥 Fréquence hot",
+                "freq_cold": "❄️ Fréquence cold",
+            }
 
-            if df_log.empty:
-                st.info("Aucune prédiction enregistrée.")
-            else:
-                # ── Sélecteur de session de prédiction ───────────────────
-                sessions = sorted(df_log["made_at"].unique(), reverse=True)
-                session_labels = {s: f"Prédiction du {s}" for s in sessions}
-                selected = st.selectbox(
-                    "Session de prédiction",
-                    options=sessions,
-                    format_func=lambda s: session_labels[s],
-                )
-                df_view = df_log[df_log["made_at"] == selected].copy()
-                after_date = df_view["after_date"].iloc[0]
-                draw_date  = df_view["draw_date"].iloc[0]
+            # Dernière session par (after_date, model)
+            df_log["made_at_dt"] = pd.to_datetime(df_log["made_at"])
+            idx = df_log.groupby(["after_date", "model"])["made_at_dt"].idxmax()
+            df_best = df_log.loc[idx.values].copy()
+            df_best["_model_order"] = df_best["model"].map({m: i for i, m in enumerate(MODEL_ORDER)})
 
-                # ── Statut du tirage ──────────────────────────────────────
-                if draw_date is None or str(draw_date) == "None":
-                    st.info(
-                        f"⏳ Tirage prévu après le **{after_date}** — résultat pas encore disponible. "
-                        "Rafraîchis les données une fois le tirage passé.",
-                        icon="📅",
-                    )
-                    result_known = False
+            # Convertir draw_date en date pour trier correctement
+            df_best["draw_date_dt"] = pd.to_datetime(df_best["draw_date"], dayfirst=True, errors="coerce")
+
+            # Filtrer : seulement à partir du 18/08/2026 (ou en attente)
+            cutoff = pd.Timestamp("2026-08-18")
+            df_best = df_best[
+                df_best["draw_date_dt"].isna() | (df_best["draw_date_dt"] >= cutoff)
+            ].copy()
+
+            df_best = df_best.sort_values(
+                ["draw_date_dt", "_model_order"], ascending=[False, True]
+            )
+
+            rows = []
+            for _, r in df_best.iterrows():
+                result_known = str(r.get("draw_date")) not in ("None", "nan", "")
+                pred_nums  = f"{int(r['n1']):02d} · {int(r['n2']):02d} · {int(r['n3']):02d} · {int(r['n4']):02d} · {int(r['n5']):02d}"
+                pred_stars = f"{int(r['etoile1']):02d} · {int(r['etoile2']):02d}"
+                if not result_known:
+                    after = pd.to_datetime(r["after_date"]).date()
+                    expected = _next_draw(after).strftime("%d/%m/%Y") + " *"
                 else:
-                    actual_nums  = df_view["actual_nums"].iloc[0]
-                    actual_stars = df_view["actual_stars"].iloc[0]
-                    st.success(
-                        f"✅ Tirage du **{draw_date}** — Résultat réel : "
-                        f"**{actual_nums}** ★ **{actual_stars}**",
-                        icon="🎰",
-                    )
-                    result_known = True
+                    expected = r["draw_date"]
+                rows.append({
+                    "Date tirage":          expected,
+                    "Modèle":               LABEL_MAP.get(r["model"], r["model"]),
+                    "Numéros prédits":      pred_nums,
+                    "Étoiles prédites":     pred_stars,
+                    "Résultat — numéros":   r.get("actual_nums", "—") if result_known else "—",
+                    "Résultat — étoiles":   r.get("actual_stars", "—") if result_known else "—",
+                    "✓ Nums":   int(r["hits_nums"])  if result_known and r["hits_nums"]  is not None else "—",
+                    "✓ Étoil":  int(r["hits_stars"]) if result_known and r["hits_stars"] is not None else "—",
+                    "Total /7": int(r["hits_total"]) if result_known and r["hits_total"] is not None else "—",
+                })
 
-                st.divider()
+            df_table = pd.DataFrame(rows)
 
-                # ── Construction du tableau ───────────────────────────────
-                rows = []
-                for _, r in df_view.iterrows():
-                    pred_nums  = f"{r['n1']:02d} · {r['n2']:02d} · {r['n3']:02d} · {r['n4']:02d} · {r['n5']:02d}"
-                    pred_stars = f"{r['etoile1']:02d} · {r['etoile2']:02d}"
+            gb = GridOptionsBuilder.from_dataframe(df_table)
+            gb.configure_default_column(resizable=True, sortable=True, wrapText=False)
+            gb.configure_column("Date tirage",        width=130, pinned="left", sort="desc")
+            gb.configure_column("Modèle",             width=175, pinned="left")
+            gb.configure_column("Numéros prédits",    width=205)
+            gb.configure_column("Étoiles prédites",   width=120)
+            gb.configure_column("Résultat — numéros", width=205)
+            gb.configure_column("Résultat — étoiles", width=130)
+            gb.configure_column("✓ Nums",   width=85)
+            gb.configure_column("✓ Étoil",  width=85)
+            gb.configure_column("Total /7", width=90)
 
-                    if result_known:
-                        hits_n = int(r["hits_nums"])  if r["hits_nums"]  is not None else 0
-                        hits_s = int(r["hits_stars"]) if r["hits_stars"] is not None else 0
-                        hits_t = int(r["hits_total"]) if r["hits_total"] is not None else 0
-                        row = {
-                            "Modèle":           r["label"],
-                            "Numéros prédits":  pred_nums,
-                            "Étoiles prédites": pred_stars,
-                            "Résultat réel — numéros":  r["actual_nums"],
-                            "Résultat réel — étoiles":  r["actual_stars"],
-                            "✓ Numéros": hits_n,
-                            "✓ Étoiles": hits_s,
-                            "Total hits": hits_t,
-                        }
-                    else:
-                        row = {
-                            "Modèle":           r["label"],
-                            "Numéros prédits":  pred_nums,
-                            "Étoiles prédites": pred_stars,
-                            "Résultat réel — numéros":  "En attente...",
-                            "Résultat réel — étoiles":  "En attente...",
-                            "✓ Numéros": "—",
-                            "✓ Étoiles": "—",
-                            "Total hits": "—",
-                        }
-                    rows.append(row)
+            hits_style = JsCode("""
+                function(params) {
+                    const v = params.value;
+                    if (v === 0) return { color: '#b00020', fontWeight: 'bold' };
+                    if (v === 1) return { color: '#e67e00', fontWeight: 'bold' };
+                    if (v >= 2) return { color: '#1a7a1a', fontWeight: 'bold' };
+                    return {};
+                }
+            """)
+            total_style = JsCode("""
+                function(params) {
+                    const v = params.value;
+                    if (typeof v !== 'number') return {};
+                    if (v === 0) return { backgroundColor: '#fff0f0', fontWeight: 'bold' };
+                    if (v <= 2) return { backgroundColor: '#fff8e1', fontWeight: 'bold' };
+                    return { backgroundColor: '#e8f5e9', fontWeight: 'bold' };
+                }
+            """)
+            row_style = JsCode("""
+                function(params) {
+                    if (params.data['Modèle'].includes('Baseline'))
+                        return { backgroundColor: '#f5f5f5', fontStyle: 'italic' };
+                    return {};
+                }
+            """)
+            gb.configure_column("✓ Nums",   cellStyle=hits_style)
+            gb.configure_column("✓ Étoil",  cellStyle=hits_style)
+            gb.configure_column("Total /7", cellStyle=total_style)
+            gb.configure_grid_options(getRowStyle=row_style)
+            gb.configure_grid_options(domLayout="autoHeight")
 
-                df_table = pd.DataFrame(rows)
-
-                # ── AgGrid ────────────────────────────────────────────────
-                gb = GridOptionsBuilder.from_dataframe(df_table)
-                gb.configure_default_column(resizable=True, wrapText=True, autoHeight=True)
-
-                # Largeurs
-                gb.configure_column("Modèle",           width=190, pinned="left")
-                gb.configure_column("Numéros prédits",  width=210)
-                gb.configure_column("Étoiles prédites", width=120)
-                gb.configure_column("Résultat réel — numéros",  width=210)
-                gb.configure_column("Résultat réel — étoiles",  width=130)
-                gb.configure_column("✓ Numéros",  width=110)
-                gb.configure_column("✓ Étoiles",  width=110)
-                gb.configure_column("Total hits", width=110)
-
-                # Coloration des hits si résultat connu
-                if result_known:
-                    hits_style = JsCode("""
-                        function(params) {
-                            const v = params.value;
-                            if (v === 0) return { 'color': '#b00020', 'fontWeight': 'bold' };
-                            if (v === 1) return { 'color': '#e67e00', 'fontWeight': 'bold' };
-                            if (v >= 2) return { 'color': '#1a7a1a', 'fontWeight': 'bold' };
-                            return {};
-                        }
-                    """)
-                    total_style = JsCode("""
-                        function(params) {
-                            const v = params.value;
-                            if (v === 0) return { 'backgroundColor': '#fff0f0', 'fontWeight': 'bold' };
-                            if (v <= 2) return { 'backgroundColor': '#fff8e1', 'fontWeight': 'bold' };
-                            if (v >= 3) return { 'backgroundColor': '#e8f5e9', 'fontWeight': 'bold' };
-                            return {};
-                        }
-                    """)
-                    gb.configure_column("✓ Numéros",  cellStyle=hits_style)
-                    gb.configure_column("✓ Étoiles",  cellStyle=hits_style)
-                    gb.configure_column("Total hits", cellStyle=total_style)
-
-                # Ligne baseline en gris
-                row_style = JsCode("""
-                    function(params) {
-                        if (params.data['Modèle'].includes('Baseline')) {
-                            return { 'backgroundColor': '#f5f5f5', 'fontStyle': 'italic' };
-                        }
-                        return {};
-                    }
-                """)
-                gb.configure_grid_options(getRowStyle=row_style)
-                gb.configure_grid_options(domLayout="autoHeight")
-
-                grid_opts = gb.build()
-
-                AgGrid(
-                    df_table,
-                    gridOptions=grid_opts,
-                    allow_unsafe_jscode=True,
-                    fit_columns_on_grid_load=False,
-                    height=280,
-                    theme="streamlit",
-                )
-
-                # ── Explication pédagogique ───────────────────────────────
-                st.divider()
-                st.markdown(
-                    "**Comment lire ce tableau ?**\n\n"
-                    "- Chaque ligne = une grille générée par un modèle différent pour le même tirage\n"
-                    "- **✓ Numéros** : combien des 5 numéros prédits correspondent au tirage réel (max 5)\n"
-                    "- **✓ Étoiles** : combien des 2 étoiles prédites correspondent au tirage réel (max 2)\n"
-                    "- **Total hits** : score final sur 7 — la baseline aléatoire en obtient en moyenne **0.83**\n\n"
-                    "La baseline sert de référence : si les modèles ne font pas mieux qu'elle de façon "
-                    "systématique, c'est la preuve que les tirages ne sont pas prédictibles."
-                )
-
-        st.divider()
-
-        # ── Historique du scheduler ───────────────────────────────────────
-        st.subheader("📋 Journal du planificateur automatique")
-        st.markdown(
-            "Le planificateur Windows (`auto_update.py`) s'exécute chaque jour à 9h et "
-            "décide automatiquement de l'action à effectuer selon le calendrier des tirages."
-        )
-
-        if SCHED_LOG.exists():
-            sched_df = pd.read_csv(SCHED_LOG).sort_values("date", ascending=False)
-            ACTION_ICONS = {"predict": "🔮", "fetch": "📡", "idle": "💤"}
-            sched_df["action"] = sched_df["action"].map(
-                lambda a: f"{ACTION_ICONS.get(a, '')} {a}"
-            )
-            sched_df.columns = ["Date", "Action", "Détail"]
-            st.dataframe(sched_df, use_container_width=True, hide_index=True)
-        else:
-            col_sched, col_cmd = st.columns(2)
-            col_sched.info(
-                "Aucune exécution automatique enregistrée pour l'instant.\n\n"
-                "Le journal apparaîtra ici une fois le planificateur configuré.",
-                icon="📋",
-            )
-            col_cmd.markdown(
-                "**Pour activer le planificateur automatique :**\n\n"
-                "```powershell\n"
-                "# En tant qu'administrateur :\n"
-                ".\\setup_scheduler.ps1\n"
-                "```\n\n"
-                "**Ou manuellement :**\n"
-                "```powershell\n"
-                "python auto_update.py\n"
-                "```"
+            AgGrid(
+                df_table,
+                gridOptions=gb.build(),
+                allow_unsafe_jscode=True,
+                fit_columns_on_grid_load=False,
+                theme="streamlit",
             )

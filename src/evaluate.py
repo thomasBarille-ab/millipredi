@@ -89,8 +89,58 @@ def run_evaluation(models_predictions: dict[str, np.ndarray],
     print(df_results.to_string(index=False))
     print(f"[evaluate] Sauvegardé : {out}")
 
+    _save_history(models_predictions, df_test)
     _plot_comparison(all_scores, df_results)
     return df_results
+
+
+def _save_history(models_predictions: dict[str, np.ndarray],
+                  df_test: pd.DataFrame) -> None:
+    """Sauvegarde le détail tirage par tirage dans history.csv."""
+    LABELS = {
+        "baseline":  "🎲 Baseline aléatoire",
+        "rf":        "🌲 Random Forest",
+        "lstm":      "🧠 LSTM",
+        "freq_hot":  "🔥 Fréquence hot",
+        "freq_cold": "❄️ Fréquence cold",
+    }
+    MODEL_ORDER = ["baseline", "rf", "lstm", "freq_hot", "freq_cold"]
+
+    df_test = df_test.reset_index(drop=True)
+    history_rows = []
+
+    for i, (_, real) in enumerate(df_test.iterrows()):
+        real_nums  = sorted(int(real[c]) for c in ["n1","n2","n3","n4","n5"])
+        real_stars = sorted(int(real[c]) for c in ["etoile1","etoile2"])
+        actual_nums_str  = " · ".join(f"{n:02d}" for n in real_nums)
+        actual_stars_str = " · ".join(f"{s:02d}" for s in real_stars)
+        date_str = pd.to_datetime(real["date"]).strftime("%d/%m/%Y") if "date" in real else str(i)
+
+        for model in MODEL_ORDER:
+            if model not in models_predictions:
+                continue
+            pred = models_predictions[model][i]
+            pred_nums  = sorted(int(x) for x in pred[:5])
+            pred_stars = sorted(int(x) for x in pred[5:])
+            hn = len(set(pred_nums) & set(real_nums))
+            hs = len(set(pred_stars) & set(real_stars))
+            history_rows.append({
+                "date":             date_str,
+                "model":            model,
+                "label":            LABELS.get(model, model),
+                "pred_nums":        " · ".join(f"{n:02d}" for n in pred_nums),
+                "pred_stars":       " · ".join(f"{s:02d}" for s in pred_stars),
+                "actual_nums":      actual_nums_str,
+                "actual_stars":     actual_stars_str,
+                "hits_nums":        hn,
+                "hits_stars":       hs,
+                "hits_total":       hn + hs,
+            })
+
+    df_hist = pd.DataFrame(history_rows)
+    out = RESULTS_DIR / "history.csv"
+    df_hist.to_csv(out, index=False)
+    print(f"[evaluate] Sauvegardé : {out} ({len(df_test)} tirages × {len(models_predictions)} modèles)")
 
 
 def _plot_comparison(all_scores: dict[str, np.ndarray], df_results: pd.DataFrame) -> None:

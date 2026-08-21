@@ -9,6 +9,7 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 from st_aggrid import AgGrid, GridOptionsBuilder, JsCode
+from streamlit_autorefresh import st_autorefresh
 
 sys.path.insert(0, str(Path(__file__).parent / "src"))
 
@@ -26,6 +27,19 @@ st.set_page_config(
 
 # ── Header ────────────────────────────────────────────────────────────────────
 st.title("🎰 EuroMillions ML")
+
+# ── Auto-refresh toutes les 30 min + scheduler automatique ───────────────────
+st_autorefresh(interval=30 * 60 * 1000, key="autorefresh")
+
+from datetime import date as _date_cls
+from scheduler import should_generate as _should_gen, should_fetch as _should_fetch
+_today = _date_cls.today()
+if st.session_state.get("scheduler_date") != str(_today):
+    if _should_gen(_today) or _should_fetch(_today):
+        from scheduler import run_daily as _run_daily
+        _run_daily()
+        st.session_state["scheduler_date"] = str(_today)
+        st.rerun()
 
 # ── Onglets ───────────────────────────────────────────────────────────────────
 tab_eda, tab_models, tab_results = st.tabs([
@@ -418,11 +432,33 @@ with tab_models:
 # ONGLET 3 — Prédictions & Résultats
 # ════════════════════════════════════════════════════════════════════════════
 with tab_results:
-    from predict_next import load_log_with_results, LOG_PATH
+    from predict_next import load_log_with_results, LOG_PATH, generate_predictions
     from scheduler import get_next_draw_date as _next_draw
+    from collect import collect as _collect
+
+    # ── Bouton mise à jour unique ─────────────────────────────────────────
+    col_btn, col_status = st.columns([1, 4])
+    with col_btn:
+        if st.button("🔄 Mettre à jour", use_container_width=True, type="primary"):
+            with st.spinner("Collecte des derniers tirages..."):
+                _collect(force=True)
+            with st.spinner("Génération des prédictions..."):
+                generate_predictions()
+            st.rerun()
+    with col_status:
+        if DATA_PATH.exists():
+            _df_info = pd.read_csv(DATA_PATH, parse_dates=["date"])
+            _last = _df_info["date"].max()
+            _next = _next_draw(_last.date())
+            st.caption(
+                f"Dernier tirage connu : **{_last.strftime('%d/%m/%Y')}** · "
+                f"Prochain tirage : **{_next.strftime('%d/%m/%Y')}**"
+            )
+
+    st.divider()
 
     if not LOG_PATH.exists():
-        st.info("Aucune prédiction enregistrée.")
+        st.info("Aucune prédiction enregistrée. Clique sur **Mettre à jour**.")
     else:
         df_log = load_log_with_results()
 
@@ -531,3 +567,23 @@ with tab_results:
                 fit_columns_on_grid_load=False,
                 theme="streamlit",
             )
+
+            # ── Score cumulé par modèle ───────────────────────────────────
+            df_known = df_best[df_best["draw_date_dt"].notna()].copy()
+            if len(df_known["draw_date_dt"].unique()) >= 2:
+                st.divider()
+                st.subheader("Score cumulé par modèle")
+
+                pivot = (
+                    df_known
+                    .groupby(["draw_date_dt", "model"])["hits_total"]
+                    .sum()
+                    .reset_index()
+                    .pivot(index="draw_date_dt", columns="model", values="hits_total")
+                    .sort_index()
+                    .fillna(0)
+                    .cumsum()
+                    .rename(columns=LABEL_MAP)
+                )
+                pivot.index = pivot.index.strftime("%d/%m/%Y")
+                st.line_chart(pivot, use_container_width=True)
